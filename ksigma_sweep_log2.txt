@@ -1,0 +1,13 @@
+
+========== config K20-s0.7 ==========
+K20-s0.7: Proposed weighted MOS = 4.181 (Centroid 3.581), qlen = 7.5
+
+========== config K20-s0.9 ==========
+K20-s0.9: Proposed weighted MOS = 4.248 (Centroid 3.581), qlen = 6.5
+
+baseline notebook/params restored
+
+===== SWEEP SUMMARY =====
+  config  Proposed_weighted_mos  Proposed_qlen  Centroid_weighted_mos  error
+K20-s0.7               4.181424       7.522282               3.580831  False
+K20-s0.9               4.248204       6.527832               3.580831  False

@@ -1,0 +1,19 @@
+# 忽略 Python 运行缓存
+__pycache__/
+*.py[cod]
+
+# 忽略所有日志和文本文件，但保留 .py 源码
+*.txt
+!*.py
+
+# 忽略 VS Code 本地编辑器配置
+.vscode/
+
+# 忽略其他结果文件夹，仅保留 s11 文件夹
+uav-bs-placement-drl-hybrid/
+uav-bs-placement-drl-multi-episode/
+uav-bs-placement-drl-*/
+!uav-bs-placement-drl-modified-v13b-K20-s11/
+
+# 忽略 s11 内部生成的超长路径仿真输出（防 Filename too long 报错）
+uav-bs-placement-drl-modified-v13b-K20-s11/**/sim-output/

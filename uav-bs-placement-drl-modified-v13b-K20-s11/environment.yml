@@ -1,0 +1,15 @@
+name: tf-gpu-env
+channels:
+  - defaults
+dependencies:
+  - keras
+  - ipykernel
+  - jupyterlab
+  - conda=23.5.0
+  - numpy
+  - scikit-learn
+  - cudnn=8.1.0
+  - cudatoolkit=11.2
+  - pandas
+  - rich
+  - matplotlib

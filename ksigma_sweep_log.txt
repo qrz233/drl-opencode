@@ -1,0 +1,29 @@
+
+========== config K4-s0.5 ==========
+K4-s0.5: Proposed weighted MOS = 3.713 (Centroid 3.581), qlen = 22.6
+
+========== config K10-s0.5 ==========
+K10-s0.5: Proposed weighted MOS = 3.966 (Centroid 3.581), qlen = 14.1
+
+========== config K16-s0.5 ==========
+K16-s0.5: Proposed weighted MOS = 4.005 (Centroid 3.581), qlen = 12.5
+
+========== config K20-s0.5 ==========
+K20-s0.5: Proposed weighted MOS = 4.062 (Centroid 3.581), qlen = 9.8
+
+========== config K10-s0.3 ==========
+K10-s0.3: Proposed weighted MOS = 3.808 (Centroid 3.581), qlen = 20.2
+
+========== config K10-s0.7 ==========
+K10-s0.7: Proposed weighted MOS = 4.014 (Centroid 3.581), qlen = 12.3
+
+baseline notebook/params restored
+
+===== SWEEP SUMMARY =====
+  config  Proposed_weighted_mos  Proposed_qlen  Centroid_weighted_mos  error
+ K4-s0.5               3.713349      22.598581               3.580831  False
+K10-s0.5               3.965901      14.136369               3.580831  False
+K16-s0.5               4.005332      12.505265               3.580831  False
+K20-s0.5               4.062345       9.841662               3.580831  False
+K10-s0.3               3.807967      20.180054               3.580831  False
+K10-s0.7               4.013728      12.250226               3.580831  False

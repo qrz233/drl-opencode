@@ -1,0 +1,378 @@
+import numpy as np
+import os
+from utils import *
+
+rng = np.random.default_rng()
+np.random.seed(0)
+
+
+class User(object):
+    def __init__(self, name) -> None:
+        self.name = name
+        self.x = None               # x-axis
+        self.y = None               # y-axis
+
+        self.cluster = np.zeros(shape=(n_slots))                    # assigned cluster in each slot
+        self.chgains_downlink = np.zeros(shape=(n_slots))           # real number, non negative
+        self.alpha = np.zeros(shape=(n_slots))                      # bandwidth allocation, in range(0,1)
+        self.channel_capacity_Mb = np.zeros(shape=(n_slots))        # channel capcit (Mb/time slot)
+        self.queue_length_Mb = np.zeros(shape=(n_slots))            # queue length (Mb)
+        self.downlink_throughput_Mb = np.zeros(shape=(n_slots))     # download speed (Mb/time slot)
+
+        self.arrival_traffic_Mb = np.zeros(shape=(n_slots))
+        self.traffic_state = np.zeros(shape=(n_slots))
+        self.active_state = np.zeros(shape=(n_slots))
+        self.traffic_type = np.zeros(shape=(n_slots))
+
+        self.delay = np.zeros(shape=(n_slots,))          # queueing delay
+        self.mos = np.zeros(shape=(n_slots))             # Mean Opinion Score (MOS)
+        self.ema_qlen_Mb = np.zeros(shape=(n_slots))     # Exponential Moving Average (EMA) of the queue length
+        self.ema_drate_Mbps = np.zeros(shape=(n_slots))  # EMA of the data rate (arrival traffic)
+        self.lambd_Mb = None                             # All-time average arrival rate (Mb)
+
+
+class UAV (object):
+    def __init__(self, name, x_init, y_init, z_init, xlim=np.array([-1, 1]),
+                 ylim=np.array([-1, 1]), speedxy_max=5, speedz_max=1):
+        self.name = name
+        self.x = np.zeros(shape=(n_slots))      # x-axis
+        self.y = np.zeros(shape=(n_slots))      # y-axis
+        self.z = np.zeros(shape=(n_slots))      # z-axis (altitude)
+
+        self.x[0] = x_init
+        self.y[0] = y_init
+        self.z[0] = z_init      # initial location
+        self.xlim = xlim
+        self.ylim = ylim        # operation area: UAV not moving out of the target zone
+        self.speedxy_max = speedxy_max
+        self.speedz_max = speedz_max    # maximum moving speed on Oxy (horizontal) and Oz (vertical) plane, m/s
+
+        # For the energy consumption model
+        self.velocity = np.zeros(shape=(n_slots))
+        self.pw_prop_W = np.zeros(shape=(n_slots))   # propulsion power in Watts (W)
+        self.vqlen_prop = np.zeros(shape=(n_slots))    # virtual queues for controlling the propulsion power
+
+
+'''
+-----------------
+System parameters
+-----------------
+'''
+n_users = 100                           # number of users
+n_uavs = 4                              # number of UAVs
+n_slots = 1 + np.int32(0.5e3)           # no. of slots in total
+slot_len = 1                            # one second, fixed
+ss_min, ss_max = 0.67, 6                # in second, for the QoE model
+
+
+'''
+-----------------------------
+Parameters for communications
+-----------------------------
+'''
+ref_receive_pw = dB(-40)        # reference received signal strength at 1 meter
+bw_per_user = MHz(0.5)          # bandwidth for one user, 50 MHz w/ 100 users (modified: was 0.3 MHz)
+# channel_bandwidth = MHz(30)   # total bandwith for 100 users
+pTx_downlink = mW(500)          # drone->user Tx power, 27 dBm = 0.5 W (modified: was 30 dBm)
+noise_pw_total = dBm(-90)       # total noise power
+
+'''
+----------------------------------------------------------------
+Airship (aerial hub base station) and backhaul links  [modified]
+----------------------------------------------------------------
+Architecture: a fixed airship-BS at (0, 0, 250) feeds the 4 relay drones via
+pure-LoS backhaul links (160 MHz total -> 40 MHz per drone, Tx power 30 dBm).
+Each drone relays traffic to its users over the 40 MHz access pool; its total
+served downlink rate is hard-capped by its backhaul capacity.
+'''
+airship_x, airship_y, airship_z = 0.0, 0.0, 250.0
+bw_bh_total_Hz = MHz(20)                        # modified: 160 -> 80 -> 40 -> 30 -> 20 MHz
+bw_bh_per_uav_Hz = bw_bh_total_Hz / n_uavs      # 5 MHz per drone
+pTx_airship = dBm(25)                           # airship Tx power: 25 dBm = 0.316 W (modified: was 23 dBm)
+
+
+def cal_backhaul_capacity_Mb(uav_x, uav_y, uav_z):
+    '''Backhaul capacity airship -> one drone (Mb per slot).
+    Pure LoS: unit fading gain and path-loss exponent 2 (same as the access link).'''
+    d2 = (uav_x - airship_x)**2 + (uav_y - airship_y)**2 + (uav_z - airship_z)**2
+    gain_bh = ref_receive_pw / d2
+    SNR_bh = pTx_airship * gain_bh / noise_pw_total
+    return to_Mbit(bw_bh_per_uav_Hz * np.log2(1 + SNR_bh) * slot_len)
+n_channels = int(2 * n_users / n_uavs)      # no. of channels reserved for 1 UAV
+d0 = 0.5e-3            # min delay for communications, ~ 1 slot in LTE (0.5 ms)
+
+'''
+-------------------------------------------
+Parameters for the mobility model for users
+-------------------------------------------
+'''
+boundary = 250              # in meters
+speed_user_avg = 1          # meters per second
+
+initial_distance_range_x = range(-(boundary - 10), boundary - 10, 10)
+initial_distance_range_y = range(-(boundary - 10), boundary - 10, 10)
+
+hotspot_range = 0
+upper_left = (-boundary, boundary)
+lower_right = (-(boundary - hotspot_range), boundary - hotspot_range)
+
+
+'''
+-------------------------------------
+Parameters for the data traffic model
+-------------------------------------
+
+web browsing: 3-5 Mbps (minmum) to 5-10 Mbps (recommended)
+video calls: 3-5 Mbps (minimum) to 10-20 Mbps (recommended)
+
+Ref: https://www.cnet.com/home/internet/how-much-internet-speed-do-you-really-need/
+
+'''
+
+# Case 1: UAV-BSs start at the initial centroids (K-means clustering), users are ON and OFF
+# lambd_Mb = 8.5            # Mbps
+# ON_data_arrival_mean_Mb = np.array([1/3, 2/3, 1]) * lambd_Mb # np.array([1/3, 2/3, 1]), np.array([1/2, 3/4, 1])
+# ON_duration_mean_tslot = 0.3e3              # in # of time slots
+# OFF_duration_mean_tslot =  0.7e3            # in # of time slots
+
+# Case 1(b): UAV-BSs start at the initial centroids (K-means clustering), users are always ON
+# lambd_Mb = 8.5            # Mbps
+# ON_data_arrival_mean_Mb = np.array([1/4, 2/4, 3/4, 1]) * lambd_Mb # np.array([1/3, 2/3, 1]), np.array([1/2, 3/4, 1])
+# ON_duration_mean_tslot = n_slots            # in # of time slots
+# OFF_duration_mean_tslot =  1                # in # of time slots
+
+# Case 2 (modified): 3 service types, each user activates exactly ONE type per time slot
+#   type 0: web info feed       2 Mbps,   tolerable delay 0.5-5 s
+#   type 1: HD video streaming  5 Mbps,   tolerable delay 2-8 s
+#   type 2: messaging (IM)      0.1 Mbps, tolerable delay 0.5-3 s
+# A user draws one type at random each time it turns ON and keeps it during that ON session.
+ON_data_arrival_mean_Mb = [2.0, 5.0, 0.1]
+traffic_type_names = ['Web', 'Video', 'Messaging']
+ON_duration_mean_tslot = n_slots            # in # of time slots
+OFF_duration_mean_tslot = 1                 # in # of time slots
+
+# Weighted-average MOS over the service types (replaces the previous MOS sum in the KPIs)
+# modified: Web 0.35 / Video 0.30 / Messaging 0.35 (was 0.35 / 0.25 / 0.40)
+mos_type_weights = [0.35, 0.30, 0.35]
+
+# Per-type tolerable-delay bounds (s): MOS = 5 at ss_min_types[k], MOS = 1 at ss_max_types[k]
+ss_min_types = [0.5, 2.0, 0.5]
+ss_max_types = [5.0, 8.0, 3.0]
+
+# Modified: the total 40 MHz access pool (drone -> users) is split across the service types
+# with shares 30% (Web) / 60% (Video) / 10% (Messaging); in each slot a type's pool is shared
+# equally by its active users.
+bw_total_Hz = MHz(40)
+bw_type_shares = [0.3, 0.6, 0.1]
+bw_type_pool_Hz = [s * bw_total_Hz for s in bw_type_shares]
+
+lambd_Mb = np.mean(ON_data_arrival_mean_Mb)   # average arrival traffic over the types (Mbps), for labeling
+
+# Expoential Moving Average (EMA): s(t) = alpha*x(t) + (1-alpha)*s(t-1)
+alpha_ema = 0.999           # smoothing factor of the exponential movavg (EMA)
+
+requesting_rate = ON_duration_mean_tslot / (ON_duration_mean_tslot + OFF_duration_mean_tslot)   # Rate (on average) at which users sending a download request
+traffic_mean_Mb = np.mean(ON_data_arrival_mean_Mb) * requesting_rate                          # Average traffic load if a user sending a request
+
+print(f'Requesting rate: {requesting_rate:.1f} \t\t# Rate (on average) at which users sending a download request')
+print(f'Arrival traffic: {traffic_mean_Mb:.1f} Mbps \t# Average traffic load (of all services) if a user sending a request')
+print('\n')
+
+
+'''
+-----------------------
+Parameters for the UAVs
+-----------------------
+'''
+
+# UAV's altitude (modified: relay drones fly between 100-200 m; the airship is fixed at 250 m)
+z_init = 150
+z_init_proposed = z_init
+z_min = 100
+z_max = 200
+
+# UAV's moving speed
+PW_THRES = 100                  # long-term threshold for the propulsion power (W)
+V_PW_THRES = 10                 # for the A2C agent, depending on the prop pw
+PW_MIN, PW_MAX = 82, 683        # the minimumm/maximum propulsion power (W)
+PW_HOVERING = 88                # propulsion power for hovering (W)
+V_ME = 6                        # maximum-endurance speed (m/s)
+
+# PW_THRES = 165                  # long-term threshold for the propulsion power (W)
+# PW_MIN, PW_MAX = 152.5, 365.9   # the minimumm/maximum propulsion energy (W)
+
+uav_speedxy_max = 30            # horizontal speed (m/s), ref: 10
+uav_speedz_max = 3              # vertical speed (m/s), ref: 3
+
+# Modified: the relay drones move again in 3D (original movement logic re-enabled)
+uav_fixed_placement = False
+uav_vxy_fixed = V_ME            # for Centroid, Stationary, and Majority
+uav_vxy_a2c = V_ME              # for the A2C method
+beta_majority = 0.1             # coefficient of the majority-vote scheme
+
+# Coverage area of each UAV, overlaping with others
+xlim_uav = np.array([(-1, 1) for i in range(0, n_uavs)]) * boundary
+ylim_uav = np.array([(-0.5, 1) for i in range(0, n_uavs)]) * boundary
+
+# Colors used for plotting, each color is used for one UAV
+colors = ['tab:blue', 'tab:orange', 'tab:green', 'tab:red', 'tab:purple', 'tab:brown', 'tab:pink', 'tab:gray', 'tab:olive', 'tab:cyan']
+markers_cluster = ['o', '^', 's', 'D', 'v', 'o', '^', 's', 'D', 'v']
+markers_uav = ['v', '*', '^', 'D', 'v', 'o', '^', 's', 'D', 'v']
+
+
+'''
+--------------------------------
+    Initial location of UAVs
+--------------------------------
+'''
+
+# Case 1: 4 UAVs start from edge points
+
+if n_uavs == 2:
+    init_locations_uav = np.array([
+        (-1, 1),        # UAV 1
+        (1, -1),        # UAV 2
+    ]) * boundary
+
+if n_uavs == 3:
+    init_locations_uav = np.array([
+        (0, 1),         # UAV 1
+        (-1, -1),       # UAV 2
+        (1, -1),        # UAV 3
+    ]) * boundary
+
+if n_uavs == 4:
+    # Modified: relay drones start from the four corner points (original deployment)
+    init_locations_uav = np.array([
+        (-1, 1),        # UAV 1
+        (-1, -1),       # UAV 2
+        (1, -1),        # UAV 3
+        (1, 1)          # UAV 4
+    ]) * boundary
+
+if n_uavs == 5:
+    init_locations_uav = np.array([
+        (0, 1),         # UAV 1
+        (-1, 0),        # UAV 2
+        (1, 0),         # UAV 3
+        (-1, -1),       # UAV 4
+        (1, -1)         # UAV 5
+    ]) * boundary
+
+if n_uavs == 6:
+    init_locations_uav = np.array([
+        (-1, 1),        # UAV 1
+        (0, 1),         # UAV 2
+        (1, 1),         # UAV 3
+        (-1, -1),       # UAV 4
+        (0, -1),        # UAV 5
+        (1, -1)         # UAV 6
+    ]) * boundary
+
+if n_uavs == 7:
+    init_locations_uav = np.array([
+        (-1, 1),        # UAV 1
+        (0, 1),         # UAV 2
+        (1, 1),         # UAV 3
+        (-1, 0),        # UAV 4
+        (-1, -1),       # UAV 5
+        (0, -1),        # UAV 6
+        (1, -1)         # UAV 7
+    ]) * boundary
+
+if n_uavs == 8:
+    init_locations_uav = np.array([
+        (-1, 1),        # UAV 1
+        (-1, -1),       # UAV 2
+        (1, -1),        # UAV 3
+        (1, 1),         # UAV 4
+        (0, 1),         # UAV 5
+        (0, -1),        # UAV 6
+        (1, 0),         # UAV 7
+        (-1, 0)         # UAV 8
+    ]) * boundary
+
+
+# # Case 2: UAVs start at the first centroid (K-means clustering)
+# t=0
+# loc_users = np.hstack((np.expand_dims(xaxis_all[:,t], axis=1), np.expand_dims(yaxis_all[:,t], axis=1)))  # shape = (n_users, 3)
+# cmat, cids, c_centroids = kmeans_clustering(loc_users, n_clusters=n_uavs)
+# init_locations_uav = np.array(c_centroids)
+
+# Print to the terminal
+print("Initial location of UAVs:\n", init_locations_uav)
+
+
+'''
+-------------------------------------
+Parameters for reinforcement learning
+-------------------------------------
+'''
+
+grid_size = 20      # split the target area into grids of size 25x25 m2
+n_grids = int(1 + np.floor((2 * boundary - 1) / grid_size))
+
+n_decisions = 10
+std_var_vxvyvz_explore = 0.5
+std_var_vxvyvz_exploit = 0.1
+lyapunov_param = n_users / n_uavs               # scaling for the objective function
+VQPW_SCALE = PW_MAX                             # scaling for the propulsion energy (W)
+QLEN_SCALE = np.mean(ON_data_arrival_mean_Mb)   # scaling for the download queue
+
+# t_training_start = np.max([500, ON_duration_mean_tslot*2])
+t_training_start = 0
+training_interval = 5       # in time slots
+
+print(f'Target area (m): {2*boundary} x {2*boundary}')
+print(f'Grid size (m): {grid_size} x {grid_size}')
+print(f'Heatmap size: {n_grids} x {n_grids}')
+print('\n')
+
+
+# Normalization coefficients
+n_users_per_grid = n_users / (n_grids * n_grids)
+user_counter_norm = np.max([5.0, 20 * n_users_per_grid])                    # 20x the avg no. of users in a grid (min=5)
+queue_norm_Mb = 20 * n_users_per_grid * np.max(ON_data_arrival_mean_Mb)     # 20x the averge traffic of a grid (in Mb)
+ch_capacity_norm_Mb = user_counter_norm * np.max(ON_data_arrival_mean_Mb)   # 20x the arrival traffic [Mb] of a grid
+
+print("Normalization coefficients:")
+print(f"user counter norm (1 grid): \t{user_counter_norm:.1f}")
+print(f"queue_len_norm (1 grid): \t{queue_norm_Mb} Mb")
+print(f"ch_capacity_norm (1 grid): \t{ch_capacity_norm_Mb} Mb")
+print("\n")
+
+
+'''
+-----------------------------
+For importing/exporting simulation data
+-----------------------------
+'''
+folder_name = (
+    f"relay4uav-bh20MHz-txair25dBm-bw40MHz-tx27dBm-bwshare30-60-10-pureLoS-K20-s1.1, n_slots={n_slots}, "
+    f"n_users={n_users}, "
+    f"n_uavs={n_uavs}, "
+    f"ld={lambd_Mb:.1f} Mbps, "
+    f"v_user_avg={speed_user_avg}, "
+    f"vxy_uav_max={uav_speedxy_max}, "
+    f"uOFF={OFF_duration_mean_tslot:.0f}, "
+    f"k={n_decisions}"
+)
+
+sim_out_path = os.path.join("simulation", "sim-output", folder_name)
+if os.path.exists(sim_out_path) is False:
+    os.mkdir(sim_out_path)
+
+sim_in_path = os.path.join('simulation', 'sim-input')
+if os.path.exists(sim_in_path) is False:
+    os.mkdir(sim_in_path)
+
+print(f'Simulation inputs: {sim_in_path}')
+print(f'Simulation outputs: {sim_out_path}\n')
+
+'''
+----------
+For teting
+----------
+'''
+if __name__ == '__main__':
+    pass
