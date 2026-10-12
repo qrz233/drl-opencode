@@ -124,6 +124,93 @@ def generate_mobility_GM(x0=0, y0=0, n_slots=1000, slot_len=1, boundary=150, upp
     return (x, y)
 
 
+def generate_mobility_SFM(
+    n_users=100, n_slots=501, slot_len=1, boundary=250,
+    speed_avg=1.0, dest_radius=8.0, repulse_R=20.0, repulse_A=1.0,
+    tau=2.0, noise_std=0.1, speed_max_factor=3.0, seed=0
+):
+    '''
+    Social Force Model (Helbing-style) mobility for ALL users jointly.
+
+    Each user moves toward a randomly chosen destination with desired speed
+    ~speed_avg, while a short-range repulsive force from nearby users avoids
+    crowding. When a destination is reached (within dest_radius) a new one is
+    drawn. Returns trajectories of shape (n_users, n_slots).
+
+    Params
+    ------
+        - n_users, n_slots, slot_len, boundary: as in generate_mobility_GM
+        - speed_avg: mean desired speed (m/s), matches speed_user_avg
+        - dest_radius: radius to consider a destination reached (m)
+        - repulse_R: social repulsion range (m)
+        - repulse_A: max repulsion acceleration (m/s^2) at zero distance
+        - tau: relaxation time toward the desired velocity (s)
+        - noise_std: std of random acceleration noise (m/s^2)
+        - speed_max_factor: hard cap = speed_max_factor * per-user desired speed
+        - seed: seed of the internal RNG (does not touch the global np.random)
+    '''
+    rng = np.random.default_rng(seed)
+
+    # initial locations on the same grid as the GM model
+    grid = np.arange(-(boundary - 10), boundary - 10, 10)
+    pos = np.column_stack([
+        rng.choice(grid, size=n_users),
+        rng.choice(grid, size=n_users),
+    ]).astype(float)
+
+    v0 = speed_avg * rng.uniform(0.8, 1.2, size=n_users)     # per-user desired speed
+    dest = rng.uniform(-(boundary - 20), boundary - 20, size=(n_users, 2))
+    vel = np.zeros(shape=(n_users, 2))
+
+    X = np.zeros(shape=(n_users, n_slots))
+    Y = np.zeros(shape=(n_users, n_slots))
+    X[:, 0], Y[:, 0] = pos[:, 0], pos[:, 1]
+
+    for t in range(1, n_slots):
+        # desired velocity toward the destination
+        d_vec = dest - pos
+        d_norm = np.maximum(np.linalg.norm(d_vec, axis=1, keepdims=True), 1e-6)
+        v_des = v0[:, None] * d_vec / d_norm
+
+        # pairwise social repulsion (linear within repulse_R)
+        diff = pos[:, None, :] - pos[None, :, :]             # (i,j): from j to i
+        r = np.linalg.norm(diff, axis=2)
+        np.fill_diagonal(r, np.inf)
+        with np.errstate(invalid='ignore'):
+            mag = np.where(r < repulse_R, repulse_A * (repulse_R - r) / repulse_R, 0.0)
+        unit = diff / np.maximum(r, 1e-9)[:, :, None]           # avoid 0/0 on coincident pairs
+        F_rep = np.sum(mag[:, :, None] * unit, axis=1)        # (n_users, 2)
+
+        # social force + noise, semi-implicit Euler update
+        F = (v_des - vel) / tau + F_rep + rng.normal(0.0, noise_std, size=(n_users, 2))
+        vel = vel + F * slot_len
+
+        # speed cap
+        sp = np.linalg.norm(vel, axis=1, keepdims=True)
+        cap = speed_max_factor * v0[:, None]
+        vel = np.where(sp > cap, vel * cap / np.maximum(sp, 1e-9), vel)
+
+        pos = pos + vel * slot_len
+
+        # boundary: clamp position and reflect the offending velocity component
+        for ax in range(2):
+            hi = pos[:, ax] > boundary - 1
+            lo = pos[:, ax] < -(boundary - 1)
+            pos[hi, ax] = boundary - 1
+            pos[lo, ax] = -(boundary - 1)
+            vel[hi | lo, ax] *= -0.3
+
+        # reached destination -> draw a new one
+        reach = np.linalg.norm(dest - pos, axis=1) < dest_radius
+        if np.any(reach):
+            dest[reach] = rng.uniform(-(boundary - 20), boundary - 20,
+                                      size=(int(np.sum(reach)), 2))
+
+        X[:, t], Y[:, t] = pos[:, 0], pos[:, 1]
+
+    return (X, Y)
+
+
 if __name__ == '__main__':
     n_slots = np.int32(1.0e3)   # no. of slots
     boundary = 300

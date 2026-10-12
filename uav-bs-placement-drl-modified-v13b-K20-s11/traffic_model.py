@@ -80,6 +80,54 @@ def generate_traffic_ON_OFF(
     return traffic_state, traffic_arrival, traffic_type
 
 
+# Weibull parameters matched to the bounded Pareto baseline (alpha=2, bound=3*mu)
+# by numerical fit: same mean (0.9165*mu) and same CV (0.603) on the ON slots.
+WEIBULL_K = 1.7096           # shape
+WEIBULL_SCALE = 1.0220       # scale, in units of traffic_mu
+
+
+def generate_arrival_from_schedule(
+    traffic_state, traffic_type, data_arrival_mean_Mb=[1.5, 5.0],
+    dist='weibull', seed=0
+):
+    '''
+    Generate per-slot arrival traffic on a GIVEN ON/OFF schedule and service-type
+    assignment, so that only the marginal file-size distribution changes:
+        - 'pareto'  : bounded Pareto (alpha=2), scale=traffic_mu*(alpha-1)/alpha,
+                      clipped at 3*traffic_mu  [original baseline]
+        - 'weibull' : Weibull(WEIBULL_K, WEIBULL_SCALE*traffic_mu), clipped at
+                      3*traffic_mu; k/scale match mean & CV of the bounded Pareto
+
+    Parameters:
+        - traffic_state : bool array, shape=(n_users, n_slots)
+        - traffic_type  : int array, shape=(n_users, n_slots), -1 = OFF
+        - data_arrival_mean_Mb : per-type mean arrival during ON (list[float])
+
+    Returns:
+        - arrival_traffic : float array, shape=(n_users, n_slots)
+    '''
+    rng_local = np.random.default_rng(seed)
+    traffic_state = np.asarray(traffic_state, dtype=bool)
+    traffic_type = np.asarray(traffic_type, dtype=int)
+    means = np.asarray(data_arrival_mean_Mb, dtype=float)
+
+    # per-slot target mean of the file size during ON (0 during OFF)
+    traffic_mu = np.where(traffic_type >= 0, means[np.clip(traffic_type, 0, None)], 0.0)
+
+    if dist == 'pareto':
+        alpha = 2.0
+        x_m = traffic_mu * (alpha - 1) / alpha
+        arrival = (rng_local.pareto(alpha, size=traffic_mu.shape) + 1) * x_m
+    elif dist == 'weibull':
+        arrival = rng_local.weibull(WEIBULL_K, size=traffic_mu.shape) * (WEIBULL_SCALE * traffic_mu)
+    else:
+        raise ValueError(f"Unknown dist: {dist}")
+
+    arrival = arrival * traffic_state
+    arrival = np.where(arrival <= 3 * traffic_mu, arrival, 3 * traffic_mu)
+    return arrival
+
+
 if __name__ == "__main__":
     n_slots = 20
     ON_duration_mean_tslot = 3
