@@ -1,0 +1,15 @@
+{
+ "invalid_n": 80,
+ "invalid_rho": {
+  "1.0": 80
+ },
+ "gap_k5_ext_mean": 0.36907070536821973,
+ "gap_k5_ext_sum": 14.762828214728788,
+ "gap_gt0_rate": 0.15,
+ "gap_coexist_mean": 1.4991577490951233,
+ "gap_noncoexist_mean": 0.040980918479763775,
+ "gap_early_mean": 1.4126051630584822,
+ "gap_late_mean": 0.18491756577582044,
+ "extra_rho_gap_mean": 0.374075179690029,
+ "extra_rho_gap_gt0": 0.15
+}

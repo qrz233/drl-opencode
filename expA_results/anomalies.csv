@@ -1,0 +1,4 @@
+kind,slot,detail
+solver-fallback,23,base -> SCS
+fd-ac-solver-fallback,23,i=77 rel=0.001 SCS
+fd-bh-solver-fallback,28,u=0 rel=0.01 SCS

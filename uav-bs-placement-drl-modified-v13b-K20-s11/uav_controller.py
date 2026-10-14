@@ -548,8 +548,7 @@ class UAV_Movement_Controller():
         )       # f1 = (-1) * np.sum(downlink_load_Mb * ch_capacity_Mb)
 
         # for controlling the UAV's propulsion energy
-        velocity_uavs = np.array(np.sqrt(vxy**2 + vz**2))
-        pw_prop = cal_uav_propulsion_energy(velocity_uavs)[0]
+        pw_prop = cal_uav_propulsion_energy(V=vxy, Vz=vz)[0]
         f2 = vqlen_prop * (pw_prop - PW_THRES)
 
         # for maximizing the objective function

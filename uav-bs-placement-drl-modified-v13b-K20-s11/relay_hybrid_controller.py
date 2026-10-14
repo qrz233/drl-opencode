@@ -43,6 +43,7 @@ class HybridCandidateController(RelayLyapunovController):
         self.cal_backhaul_capacity_Mb = backhaul_fn
         self.pTx_downlink = pTx_downlink
         self.noise_pw_total = noise_pw_total
+        self._mp = None          # motion params (set at each decide_and_score)
 
     # ------------------------------------------------------------------ per-slot flow
     def begin_slot(self, heatmap, uav_locs, airship_loc):
@@ -63,6 +64,7 @@ class HybridCandidateController(RelayLyapunovController):
                          speed_xy, speed_z, zmin, zmax, boundary):
         '''Propose K candidates for drone k, score each with the true model, execute best.
         Returns the best raw action (3,).'''
+        self._mp = (speed_xy, speed_z, zmin, zmax, boundary)
         mu = self._forward_single(uav_loc, airship_loc, heatmap)          # (3,)
         cands = np.tile(mu, (self.n_candidates, 1))
         cands[1:] += self.eval_sigma * np.random.randn(self.n_candidates - 1, 3)
@@ -75,9 +77,7 @@ class HybridCandidateController(RelayLyapunovController):
             return cands[best], 0.0
         else:
             for j, c in enumerate(cands):
-                x = np.clip(uav_loc[0] + c[0] * speed_xy * self.tau, -boundary, boundary)
-                y = np.clip(uav_loc[1] + c[1] * speed_xy * self.tau, -boundary, boundary)
-                z = np.clip(uav_loc[2] + c[2] * speed_z * self.tau, zmin, zmax)
+                (x, y, z), _ = self.motion(c, uav_loc)                    # eval == exec motion
                 g = self.cal_channel_fading_gain(user_x[ids_k], user_y[ids_k], x, y, z)
                 R_acc = bw_alloc_Hz[ids_k] * np.log2(1 + self.pTx_downlink * g / self.noise_pw_total) \
                     * self.tau / 1e6                                      # Mb per slot
@@ -103,6 +103,24 @@ class HybridCandidateController(RelayLyapunovController):
             self._slot_entry = None
 
     # ------------------------------------------------------------------ helpers
+    def motion(self, c, loc):
+        '''Normalized candidate action c (3,) -> (position, velocity).
+
+        Single source of truth used by BOTH candidate evaluation and notebook
+        execution, so evaluated and executed positions are identical.
+        Hard speed caps: ||v_xy|| <= speed_xy, |v_z| <= speed_z (physical limits);
+        position clipped exactly like adjust_location / adjust_altitude.'''
+        speed_xy, speed_z, zmin, zmax, boundary = self._mp
+        c = np.asarray(c, dtype=float)
+        v = np.empty(3)
+        nxy = float(np.linalg.norm(c[:2]))
+        v[:2] = speed_xy * c[:2] / max(1.0, nxy)
+        v[2] = speed_z * c[2] / max(1.0, abs(c[2]))
+        p = np.array([np.clip(loc[0] + v[0] * self.tau, -boundary + 1, boundary - 1),
+                      np.clip(loc[1] + v[1] * self.tau, -boundary + 1, boundary - 1),
+                      np.clip(loc[2] + v[2] * self.tau, zmin, zmax)])
+        return p, v
+
     def _forward_single(self, uav_loc, airship_loc, heatmap):
         hm = torch.as_tensor(heatmap, dtype=torch.float32).view(1, 1, *np.shape(heatmap))
         up = torch.as_tensor(np.asarray(uav_loc, dtype=np.float32) / self.boundary).view(1, 3)

@@ -1,0 +1,9 @@
+{
+  "best_binding": "binding_a1.0",
+  "best_binding_a": 1.0,
+  "best_util": "util_a1.0_e0.5",
+  "best_util_a": 1.0,
+  "best_util_eta0": 0.5,
+  "cal_n": 558,
+  "test_n": 2178
+}

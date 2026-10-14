@@ -1,0 +1,5 @@
+kind,slot,detail,status,d_diff,u_diff
+solver-fallback,23,base->SCS,,,
+base-repro,44,,optimal,0.0017970432038483253,5.474942099681357e-08
+base-repro,110,,optimal,0.005226749491590077,1.508374936065593e-08
+base-repro,335,,optimal,0.027275734672647434,5.3690314416598994e-09

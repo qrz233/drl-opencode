@@ -202,7 +202,7 @@ V_ME = 6                        # maximum-endurance speed (m/s)
 # PW_MIN, PW_MAX = 152.5, 365.9   # the minimumm/maximum propulsion energy (W)
 
 uav_speedxy_max = 30            # horizontal speed (m/s), ref: 10
-uav_speedz_max = 3              # vertical speed (m/s), ref: 3
+uav_speedz_max = 5              # vertical speed (m/s), ref: 5
 
 # Modified: the relay drones move again in 3D (original movement logic re-enabled)
 uav_fixed_placement = False

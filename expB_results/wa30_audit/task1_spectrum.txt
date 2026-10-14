@@ -1,0 +1,9 @@
+access_pool_MHz: 40.0
+backhaul_pool_MHz: 30.0
+access_pool_param: 40.0
+backhaul_pool_param: 20.0
+per_user_ref_MHz: 0.5
+per_uav_bh_ref_MHz: 5.0
+type_pool_shares: [0.3, 0.6, 0.1]
+combined_if_same_band_MHz: 70.0
+joint_budget_defined_in_params: False

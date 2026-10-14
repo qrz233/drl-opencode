@@ -444,12 +444,13 @@ def zone_clustering(
 '''
 
 
-def cal_uav_propulsion_energy(V=0):
+def cal_uav_propulsion_energy(V=0, Vz=0.0):
     ''' Calculate the UAV's propulsion energy consumption (in Watts).
 
     Params
     ------
-        V: velocity in m/s
+        V: horizontal velocity in m/s
+        Vz: vertical velocity in m/s (>0 climb, <=0 descend)
 
     Returns
     -------
@@ -485,7 +486,15 @@ def cal_uav_propulsion_energy(V=0):
     p_blade_profile = P0 * (1 + 3 * V**2 / Utip**2)
     p_induced = Pi * np.sqrt(np.sqrt(1 + V**4 / (4 * v0**4)) - V**2 / (2 * v0**2))
     p_parasite = 0.5 * d0 * rho * s * A * V**3
-    p_sum = p_blade_profile + p_induced + p_parasite
+
+    # vertical power P_z (doc): climb  mg*Vz + c_v*Vz^2  /  descend  alpha*mg*|Vz|
+    c_v_climb = 0.5       # N*s^2/m^2, quadratic term of climb power
+    alpha_descend = 0.5   # regenerative factor of descend power
+    if Vz > 0:
+        p_vertical = W * Vz + c_v_climb * Vz**2
+    else:
+        p_vertical = alpha_descend * W * abs(Vz)
+    p_sum = p_blade_profile + p_induced + p_parasite + p_vertical
 
     return p_sum, p_blade_profile, p_induced, p_parasite
 

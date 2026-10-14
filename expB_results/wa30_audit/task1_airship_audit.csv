@@ -1,0 +1,19 @@
+script,locus,airship_mapping,legality,affected_outputs,affected_claims,status
+expB_wa30_audit.py,move_air L405-410; calls L469/476,airship step = SPD_XY*rho (7.5-15 m/s),ILLEGAL (>5),"task2_wa30_methods.csv::dJ_dual_air,air_tag,air_gain_over_uav","wa30_diagnostic_report.md L113/L114/L147 ""+0.093"", run.log L108",NON-CITABLE
+expB_wa30_audit.py,sets k3/bind/dual loop L452-462,UAV-only; airship fixed at air0,LEGAL,"task2_wa30_methods.csv::J0,dJ_k3,dJ_bind,dJ_dual,dJ_acc (+tags)",wa30_diagnostic_report.md K5 table; adaptive_step_report.md K5/ADP2b,VALID
+expB_task3_frozen.py,eval_action_dual L380-391 (va=SPD_XY*rho*e_a),airship step = SPD_XY*rho (7.5/15 m/s),ILLEGAL (>5),"expA_native_slots.csv::J_du_best,dJ_du,dJ_du_vs_beta,dual_selected,du_D_sum,du_P_sum,du_vxy_mean,J_old_betaK3 (b25/b50 rows move airship)","task3_frozen_run.log L59 ""Hybrid win-vs-dual 0.270""; no md cites",NON-CITABLE
+expB_task3_frozen.py,eval_action_hybrid L363-378; ExpB L500-521,airship fixed (air0.copy()); UAV v clipped <=30,LEGAL,"expA_native_slots.csv::J_hy_*,dJ_hy*; expB_unified_speed_slots.csv",none in md reports,VALID (UAV-side only)
+expB_selective_mobility.py,apply_move L176-182 / apply_joint L194-197,"illegal SPD_XY*rho branch exists BUT call sites L262 move_air=False, L278 air_fixed=True",LEGAL in actual runs (dead code),"selective_candidates.csv, selective_slots.csv, selective_report.md",selective_report.md rho 0.25/0.5 conclusions,VALID
+expB_scenario_audit.py,airship_move_eval L343-356,"SPD_AIR=5.0, 8 compass dirs, clip +-249",LEGAL,task3_airship_geom.csv (dU 0.056/0.080),"scenario_audit_report.md L75-77, L89-93",VALID
+expB_stage0.py,L196-199 SPD_AIR=5.0,airship 5 m/s directed,LEGAL,stage0 csv/npz,stage0 report claims,VALID
+expB_stage1.py,L214-217 SPD_AIR=5.0,airship 5 m/s directed,LEGAL,"stage1_runs.npz, stage1 csv",stage1 report claims,VALID
+expB_stage2.py,L244-247 SPD_AIR=5.0,airship 5 m/s directed,LEGAL,"stage2_seed0-4.npz, stage2 csv",stage2 / multi-seed report claims,VALID
+expB_task2_long.py,L208-211 SPD_AIR=5.0,airship 5 m/s directed,LEGAL,task2_long_runs.npz,task2_long claims,VALID
+expB_task3_binding_closed.py,L229-232 SPD_AIR=5.0,airship 5 m/s directed,LEGAL,task3_binding.npz,task3 binding closed-loop claims,VALID
+joint_ac_controller.py (src),AIRSHIP_SPEED_MAX=5.0 L64; clip L353,production airship limit 5 m/s,LEGAL (reference),expA_dual_diagnostics.py -> expA_results/snapshots.npz,ALL W_A=30 audit work (snapshots are the single full-state source),VALID
+expA_dual_diagnostics.py,via JointACCritic (AIRSHIP_SPEED_MAX=5.0),airship <=2.5 m/s measured,LEGAL,"expA_results/snapshots.npz (152 snaps, slots 4..500)",everything built on snapshots,VALID
+expB_task3_hybrid.py,"hybrid actor: vxy<=30, vz<=5, airship fixed",airship fixed; UAV speed at limits,LEGAL on speed; P reaches 745.6 W > PW_MAX=683 (combined xy+z),"task3_seed0/2.npz::hybrid_P_hist, task3_kpi.csv::pw_max=745.57",no md report cites hybrid KPI (only ablation design L42 = Hybrid-slow),CAVEAT: power over PW_MAX; uncited
+expB_task3b_slow.py,fast variant actor same as above; slow v<=4.8,airship fixed,LEGAL on speed; fast P reaches 745.6 W > 683,"task3b_seed0/2.npz::fast_P_hist, task3b_kpi.csv::slots_over_683=1214/1188",no md report cites fast/slow KPI,CAVEAT: power over PW_MAX; uncited
+expB_task3_adaptive / step_sweep / _grid_residual / _task2_*,airship fixed at air0 for every candidate,airship fixed (rho_air=0),LEGAL,"task2_step_sweep.csv, task2_extended_vs_k5.csv, task3_adaptive_replay.csv",adaptive_step_report.md (K5/ADP2b/oracle numbers),VALID
+expB_hybrid_*.py (task2_repro),airship fixed; vxy<=30 (lookahead),airship fixed,LEGAL,task2_hybrid_lookahead.npz (P_hist max 139.2),task1_audit_report.md Hybrid MOS=4.9967 baseline,VALID
+expB_ablation_guidance*.py,airship fixed (design uses hybrid-slow),airship fixed,LEGAL,ablation_guidance/*,"ablation_guidance_design.md (design only, not executed)",VALID

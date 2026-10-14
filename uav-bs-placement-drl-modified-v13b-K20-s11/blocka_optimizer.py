@@ -137,20 +137,22 @@ def solve_blocka(gamma_acc_MHz, gamma_bh_MHz, demand_Mb, assoc, beta,
     prob = cp.Problem(cp.Maximize(b @ D), constraints)
 
     last_err = None
+    status = None
     for sname in [solver, 'CLARABEL', 'SCS']:
         if sname is None:
             continue
         try:
             prob.solve(solver=sname, warm_start=True)
-            if prob.status in ('optimal', 'optimal_inaccurate'):
+            status = prob.status
+            if status in ('optimal', 'optimal_inaccurate'):
                 break
         except Exception as e:                    # solver unavailable / crash
             last_err = e
-            prob.status = 'solver-error'
-    if prob.status not in ('optimal', 'optimal_inaccurate'):
-        if last_err is not None:
-            print(f'[blocka] solve failed ({prob.status}): {last_err}')
-        out['status'] = str(prob.status)
+            status = 'solver-error'
+            print(f'[blocka] solver {sname} raised: {e!r}', flush=True)
+    if status not in ('optimal', 'optimal_inaccurate'):
+        print(f'[blocka] solve failed (status={status}), last_err={last_err!r}', flush=True)
+        out['status'] = str(status)
         return out
 
     W_sol = np.maximum(W.value, 0.0)
